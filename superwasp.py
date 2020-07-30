@@ -15,6 +15,7 @@ from astropy.timeseries import TimeSeries
 
 __all__ = ["lightcurve"]
 
+TIME_COLUMN = 'time'
 TIMESTAMP_COLUMN = 'TMID'
 FLUX_COLUMN = 'TAMFLUX2'
 FLUX_ERR_COLUMN = 'TAMFLUX2_ERR'
@@ -35,9 +36,9 @@ class lightcurve:
         t = Table.read(filename, hdu=1)
         t[TIMESTAMP_COLUMN].unit = 'second'
         """ set timestamp to julian date """
-        t['time'] = (t[TIMESTAMP_COLUMN] / 86400.0) + 2453005.5
-        t['time'].unit = 'day'
-        t['time'] = Time(t['time'], format='jd')
+        t[TIME_COLUMN] = (t[TIMESTAMP_COLUMN] / 86400.0) + 2453005.5
+        t[TIME_COLUMN].unit = 'day'
+        t[TIME_COLUMN] = Time(t[TIME_COLUMN], format='jd')
 
         t[FLUX_COLUMN].unit = 'mag'
         t[FLUX_ERR_COLUMN].unit = 'mag'
@@ -47,12 +48,10 @@ class lightcurve:
         t[MAG_COLUMN].unit = 'mag'
 
         """ calculate magnitude error """
-        t[MAG_ERR_COLUMN] = 1.08574 * t[FLUX_ERR_COLUMN]
+        t[MAG_ERR_COLUMN] = 1.08574 * (t[FLUX_ERR_COLUMN] / t[FLUX_COLUMN])
         t[MAG_ERR_COLUMN].unit = 'mag'
 
-        t.keep_columns(['time', TIMESTAMP_COLUMN, FLUX_COLUMN, FLUX_ERR_COLUMN, MAG_COLUMN, MAG_ERR_COLUMN])
-
-
+        t.keep_columns([TIME_COLUMN, TIMESTAMP_COLUMN, FLUX_COLUMN, FLUX_ERR_COLUMN, MAG_COLUMN, MAG_ERR_COLUMN])
 
         self.ts = TimeSeries(t)
         self.period = period
@@ -65,8 +64,8 @@ class lightcurve:
         else:
             wrap_phase = self.period
 
-        self.ts = self.ts.fold(period=self.period, normalize_phase=False, wrap_phase=wrap_phase)
-        self.ts.sort('time')
+        self.ts = self.ts.fold(period=self.period, normalize_phase=normalize_phase, wrap_phase=wrap_phase)
+        # self.ts.sort(TIME_COLUMN)
 
     @property
     def time(self):
@@ -114,10 +113,14 @@ class lightcurve:
         mean, median, stddev = sigma_clipped_stats(self.ts[FLUX_COLUMN])
         self.ts[FLUX_COLUMN] = self.ts[FLUX_COLUMN] / median
 
-    def write(self, filename, format=None, *args, **kwargs):
+    def export_phoebe_gui(self, filename, format=None, *args, **kwargs):
+        t = self.ts[TIME_COLUMN, MAG_COLUMN, MAG_ERR_COLUMN]
+        return t.write(filename, format=format, *args, **kwargs)
+
+    def export_csv(self, filename, format=None, *args, **kwargs):
         return self.ts.write(filename, format=format, *args, **kwargs)
 
-    def plot(self, show_mean=False):
+    def plot_flux(self, show_mean=False):
         y_min, y_max = boundify(self.flux)
         fig = plt.figure(figsize=(20,20))
 
@@ -139,5 +142,22 @@ class lightcurve:
 
         return fig, ax1
 
+    def plot_magnitude(self, show_mean=False):
+        y_min, y_max = boundify(self.magnitude)
+        fig = plt.figure(figsize=(20,20))
 
-    
+        ax1 = fig.add_subplot(111)
+
+        ax1.plot((self.time.jd / self.period.to(u.day)).value, self.magnitude, 'k.', markersize=1)
+        ax1.plot((self.time.jd / self.period.to(u.day)).value - 1.0, self.magnitude, 'k.', markersize=1)
+
+        if show_mean:
+            lc_mean = aggregate_downsample(self.ts, time_bin_size=0.001 * u.day)
+            ax1.plot((lc_mean.time_bin_start.jd / self.period.to(u.day)).value, lc_mean[MAG_COLUMN], 'r-', drawstyle='steps', markersize=1)
+            ax1.plot((lc_mean.time_bin_start.jd / self.period.to(u.day)).value - 1.0, lc_mean[MAG_COLUMN], 'r-', drawstyle='steps', markersize=1)
+
+        ax1.set_ylim(bottom=y_min, top=y_max)
+        ax1.set_xlabel('Phase')
+        ax1.set_ylabel('Magnitude')
+
+        return fig, ax1

@@ -2,7 +2,10 @@ from pathlib import Path
 import os
 
 from astropy.nddata import CCDData
+from astropy.nddata.utils import block_reduce
+from astropy.nddata.utils import Cutout2D
 from astropy.visualization import hist
+from astropy import visualization as aviz
 from astropy.stats import mad_std
 import astropy.units as u
 import ccdproc as ccdp
@@ -171,9 +174,12 @@ def select_flat_frame(
     ) -> CCDData:
     """
     """
-    combined_flats = {ccd.header['filter']: ccd for ccd in flat_frames.ccds(imagetyp=FLAT_IMAGETYP, combined=True)}
+
+    print(flat_frames) 
+    combined_flats = { ccd.header['filter']: ccd for ccd in flat_frames.ccds(imagetyp=FLAT_IMAGETYP, combined=True) }
+
     flat_frame = combined_flats.get(science_frame.header['filter'], None)
-    
+
     return flat_frame
 
 def subtract_bias(
@@ -494,7 +500,10 @@ def calibrate_science(
         science_frame : CCDData,
         flat_path : Path,
         bias_path : Path,
-        dark_path : Path
+        dark_path : Path,
+        subtract_bias=True,
+        subtract_dark=True,
+        divide_flat=True
     ) -> CCDData:
     """
     """
@@ -502,11 +511,11 @@ def calibrate_science(
     master_dark = generate_master_dark(science_frame, bias_path, dark_path)
     master_flat = generate_master_flat(science_frame, bias_path, dark_path, flat_path)
     
-    if master_bias is not None:
+    if subtract_bias and master_bias is not None:
         science_frame = ccdp.subtract_bias(science_frame, master_bias)
-    if master_dark is not None:
+    if subtract_dark and master_dark is not None:
         science_frame = ccdp.subtract_dark(science_frame, master_dark, exposure_time='exptime', exposure_unit=u.second, scale=True)
-    if master_flat is not None:
+    if divide_flat and master_flat is not None:
         science_frame = ccdp.flat_correct(science_frame, master_flat)
     
     return science_frame
